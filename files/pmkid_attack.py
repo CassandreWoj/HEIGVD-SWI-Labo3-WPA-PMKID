@@ -9,13 +9,13 @@ from pbkdf2 import *
 import hmac, hashlib
 
 # Reading the pcap file
-wpa = rdpcap("PMKID_handshake.pcap")
+cap = rdpcap("PMKID_handshake.pcap")
 
 # Find the SSID
-ssid = wpa[0].info
+ssid = cap[0].info
 
 """
-TO DO : récupérer dynamiquement les adresses MAC de l'AP et du client ? + SSID ?
+TO DO : récupérer dynamiquement les adresses MAC de l'AP et du client ?
 
 for packet in wpa :
     # The first packet with type, subtype and proto at 0 is an Association Request
@@ -30,7 +30,7 @@ for packet in wpa :
 """
 
 # The PMKID is contained in packet 146 (Key Exchange Packet 1 of 4)
-packet = wpa[145]
+packet = cap[145]
 # Storing the client and the AP's MAC addresses
 Clientmac = a2b_hex((packet.addr1).replace(":", ""))
 APmac = a2b_hex((packet.addr2).replace(":", ""))
