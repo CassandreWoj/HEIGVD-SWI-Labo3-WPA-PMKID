@@ -45,7 +45,7 @@ with open('passphrases.txt') as file :
         # Calculate 4096 rounds to obtain the 256 bit (32 oct) PMK
         pmk = pbkdf2(hashlib.sha1, passPhrase.encode(), ssid, 4096, 32)
 
-        # Performing the PMKID attack by calculating a new PMKID from a passphrase
+        # Calculating a new PMKID from a passphrase
         calc_pmkid = hmac.new(pmk, b"PMK Name" + APmac + Clientmac, hashlib.sha1)
         calc_pmkid = calc_pmkid.digest()[:16]
         print("Passphrase tested : ", passPhrase)
